@@ -1,36 +1,30 @@
-/**
- * background.js
- * Service worker — handles all fetch to localhost
- * since content scripts can't hit localhost directly.
- */
+// Keep service worker alive with a periodic alarm
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.alarms.create("keepAlive", { periodInMinutes: 0.4 });
+});
 
-const PROXY = "http://localhost:7821/track-percent";
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "keepAlive") {
+    // no-op, just keeps service worker active
+  }
+});
 
-// Listen for usage data from content script
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "SEND_USAGE") {
-    fetch(PROXY, {
+    fetch("http://localhost:7821/track-percent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(msg.payload),
     })
       .then((r) => r.json())
-      .then((d) => {
-        console.log("[Claude Buddy] proxy response:", d);
-        sendResponse({ ok: true });
-      })
-      .catch((err) => {
-        console.warn("[Claude Buddy] proxy unreachable:", err.message);
-        sendResponse({ ok: false });
-      });
-
-    return true; // keep channel open for async response
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
   }
 });
 
-// Periodically ping the usage API directly using cookies from the tab
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === "complete" && tab.url?.includes("claude.ai")) {
-    chrome.tabs.sendMessage(tabId, { type: "POLL_NOW" }).catch(() => {});
-  }
+// Wake up content scripts on tab navigation
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  sendResponse({ ok: true });
+  return true;
 });

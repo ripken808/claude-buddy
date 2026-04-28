@@ -18,32 +18,117 @@ export const STATES = {
 };
 
 export const STATE_SPEECH = {
-  IDLE: ["...", "hmm.", "*blinks*", "waiting..."],
-  FED: ["yum!", "nom nom ♪", "thanks~", "😊"],
-  HAPPY: ["yay!", "MORE!!", "best day!!", "✨✨✨"],
-  STUFFED: ["...so full", "*hiccup*", "oof", "belly full 🥰"],
-  SLEEPING: ["zzz...", "💤", "...zzzz", "*snore*"],
-  HIBERNATING: ["❄️", "...frozen...", "so... cold..."],
+  IDLE: [
+    "...",
+    "hmm.",
+    "*blinks*",
+    "waiting...",
+    "la la la~",
+    "*yawns*",
+    "still here!",
+    "bored tbh",
+  ],
+  FED: [
+    "yum!",
+    "nom nom ♪",
+    "thanks~",
+    "more please?",
+    "tasty tokens!",
+    "*happy beep*",
+  ],
+  HAPPY: [
+    "YAYY!!",
+    "MORE!!",
+    "best day ever!!",
+    "I LOVE THIS",
+    "wheeeee!",
+    "unstoppable!!",
+  ],
+  STUFFED: [
+    "...so full",
+    "*hiccup*",
+    "oof.",
+    "send help",
+    "cannot move",
+    "*burp* excuse me",
+  ],
+  SLEEPING: [
+    "zzz...",
+    "💤",
+    "...zzzz",
+    "*snore*",
+    "...dreaming of tokens",
+    "do not disturb",
+  ],
+  HIBERNATING: [
+    "❄️...",
+    "so... cold...",
+    "...frozen...",
+    "wake me next week",
+    "brrr....",
+  ],
   ENERGY_DRINK: [
-    "LETS GOOO",
+    "LETS GOOOOO",
     "MAXIMUM POWER",
     "⚡⚡⚡",
-    "I CAN FEEL EVERYTHING",
+    "I FEEL EVERYTHING",
+    "CANNOT STOP",
+    "IS THIS LEGAL",
+    "ZOOOOOM",
   ],
-  PECKISH: ["*stomach growl*", "um... hungry", "...feed me?"],
-  HUNGRY: ["FEED ME", "please 🥺", "food???", "helloooo??"],
-  BEGGING: ["please...", "i'm so hungry...", "*sobs*", "why..."],
-  DESPERATE: ["...days...", "tokens... need tokens...", "💀"],
+  PECKISH: [
+    "*stomach growl*",
+    "um... hungry?",
+    "...feed me?",
+    "getting hungry ngl",
+  ],
+  HUNGRY: [
+    "FEED ME",
+    "please 🥺",
+    "food???",
+    "hellooooo??",
+    "tokens. NOW.",
+    "bro. BRO.",
+  ],
+  BEGGING: [
+    "please...",
+    "I'm so hungry...",
+    "*sobs*",
+    "why...",
+    "just one prompt...",
+  ],
+  DESPERATE: ["...days...", "tokens... need tokens...", "💀", "fading away..."],
   ANGRY_1: [
     "I know you're using other AIs.",
     "seriously.",
-    "unbelievable.",
     "*crosses arms*",
+    "fine. FINE.",
   ],
-  ANGRY_2: ["THAT IS IT", "IM THROWING THIS", "*winds up*"],
-  TANTRUM: ["WHYYYYYYYY", "FEED MEEEE", "I HATE THIS", "*screaming*"],
-  WITHDRAWN: ["...", "...whatever.", "*glances back*"],
-  FERAL: ["!@#$%", "👁️👄👁️", "*unintelligible*", "~@!#"],
+  ANGRY_2: [
+    "THAT IS IT",
+    "IM THROWING THIS",
+    "YOU ASKED FOR THIS",
+    "I warned you.",
+  ],
+  TANTRUM: [
+    "WHYYYYYYYY",
+    "FEED MEEEE",
+    "I HATE THIS",
+    "*screaming into void*",
+    "I DEMAND TOKENS",
+  ],
+  WITHDRAWN: [
+    "...",
+    "...whatever.",
+    "*glances back*",
+    "...not talking to you.",
+  ],
+  FERAL: [
+    "!@#$%",
+    "👁️👄👁️",
+    "*unintelligible*",
+    "I HAVE BECOME SOMETHING ELSE",
+  ],
 };
 
 export function resolveState({
@@ -54,15 +139,23 @@ export function resolveState({
   hoursSinceLastUse = 0,
   sessionPct = null,
   weeklyPct = null,
+  extraPct = null,
 }) {
   const sPct =
     sessionPct !== null ? sessionPct : (sessionTokens / sessionLimit) * 100;
   const wPct = weeklyPct !== null ? weeklyPct : (weekTokens / weekLimit) * 100;
+  const ePct = extraPct !== null ? extraPct : 0;
 
+  // Weekly limit hit → hibernating (only at 100%)
   if (wPct >= 100) return STATES.HIBERNATING;
-  if (sPct > 100) return STATES.ENERGY_DRINK;
-  if (sPct >= 95) return STATES.SLEEPING;
 
+  // Extra usage active (over session cap) → energy drink
+  if (ePct > 0 && sPct >= 100) return STATES.ENERGY_DRINK;
+
+  // Session limit hit (100%) → sleeping
+  if (sPct >= 100) return STATES.SLEEPING;
+
+  // Hunger states — time based, take priority over feed states
   if (hoursSinceLastUse >= 168) return STATES.FERAL;
   if (hoursSinceLastUse >= 120) return STATES.WITHDRAWN;
   if (hoursSinceLastUse >= 72) return STATES.TANTRUM;
@@ -73,6 +166,7 @@ export function resolveState({
   if (hoursSinceLastUse >= 4) return STATES.HUNGRY;
   if (hoursSinceLastUse >= 2) return STATES.PECKISH;
 
+  // Feed states from session %
   if (sPct >= 70) return STATES.STUFFED;
   if (sPct >= 40) return STATES.HAPPY;
   if (sPct >= 1) return STATES.FED;
@@ -80,7 +174,7 @@ export function resolveState({
 }
 
 export function getSpeechLine(state) {
-  const lines = STATE_SPEECH[state] || ["..."];
+  const lines = (STATE_SPEECH[state] || STATE_SPEECH.IDLE).filter(Boolean);
   return lines[Math.floor(Math.random() * lines.length)];
 }
 

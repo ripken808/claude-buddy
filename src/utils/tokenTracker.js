@@ -4,14 +4,23 @@ const STORAGE_KEY = "claude_buddy_usage";
 const PROXY_URL = "http://localhost:7821/usage";
 
 function getDefaultUsage() {
-  return { sessionTokens: 0, weekTokens: 0, lastUsedAt: null, history: [] };
+  return {
+    sessionTokens: 0,
+    weekTokens: 0,
+    lastUsedAt: null,
+    history: [],
+    isThinking: false,
+    sessionPct: null,
+    weeklyPct: null,
+    extraPct: null,
+  };
 }
 
 export function loadUsage() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return getDefaultUsage();
-    return JSON.parse(raw);
+    return { ...getDefaultUsage(), ...JSON.parse(raw) };
   } catch {
     return getDefaultUsage();
   }
@@ -53,9 +62,9 @@ export function getHoursSinceLastUse(usage) {
 export function getTokenState(usage) {
   return {
     sessionTokens: usage.sessionTokens || 0,
-    sessionLimit: 50000,
+    sessionLimit: SESSION_LIMIT,
     weekTokens: usage.weekTokens || 0,
-    weekLimit: 500000,
+    weekLimit: WEEK_LIMIT,
     hoursSinceLastUse: getHoursSinceLastUse(usage),
     sessionPct: usage.sessionPct ?? null,
     weeklyPct: usage.weeklyPct ?? null,
@@ -67,30 +76,30 @@ export function getSessionPercent(usage) {
 }
 
 export async function fetchRealUsage() {
+  // Try proxy first (Electron + browser with proxy running)
   try {
-    const res = await fetch(PROXY_URL, { signal: AbortSignal.timeout(2000) });
-    if (!res.ok) return null;
-    const data = await res.json();
-
-    if (data.sessionTokens != null) {
-      const usage = loadUsage();
-
-      // Only update lastUsedAt from proxy if proxy has a real value
-      // Otherwise preserve local lastUsedAt so hunger timer still works
-      usage.sessionTokens = data.sessionTokens;
-      usage.weekTokens = data.weekTokens ?? usage.weekTokens;
-      if (data.lastUsedAt) usage.lastUsedAt = data.lastUsedAt;
-
-      // Store raw percentages for display
-      usage.sessionPct = data.sessionPct ?? null;
-      usage.weeklyPct = data.weeklyPct ?? null;
-      usage.extraPct = data.extraPct ?? null;
-
-      saveUsage(usage);
-      return usage;
+    const res = await fetch(PROXY_URL, { signal: AbortSignal.timeout(1500) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.sessionTokens != null || data.sessionPct != null) {
+        const usage = loadUsage();
+        usage.sessionTokens = data.sessionTokens ?? usage.sessionTokens;
+        usage.weekTokens = data.weekTokens ?? usage.weekTokens;
+        usage.sessionPct = data.sessionPct ?? null;
+        usage.weeklyPct = data.weeklyPct ?? null;
+        usage.extraPct = data.extraPct ?? null;
+        usage.isThinking = data.isThinking ?? false;
+        if (data.lastUsedAt) usage.lastUsedAt = data.lastUsedAt;
+        saveUsage(usage);
+        return usage;
+      }
     }
-  } catch {
-    // proxy not running — silent fail
+  } catch {}
+
+  // Fall back to localStorage (extension wrote directly)
+  const usage = loadUsage();
+  if (usage.sessionPct != null || usage.sessionTokens > 0) {
+    return usage;
   }
   return null;
 }

@@ -12,6 +12,8 @@ let state = {
   resetsAt: null,
   lastUsedAt: null,
   updatedAt: null,
+  isThinking: false,
+  thinkingSince: null,
 };
 
 app.get("/usage", (req, res) => {
@@ -24,6 +26,8 @@ app.get("/usage", (req, res) => {
     resetsAt: state.resetsAt,
     lastUsedAt: state.lastUsedAt,
     updatedAt: state.updatedAt,
+    isThinking: state.isThinking,
+    thinkingSince: state.thinkingSince,
   });
 });
 
@@ -35,17 +39,41 @@ app.post("/track-percent", (req, res) => {
   if (weeklyPct != null) state.weeklyPct = weeklyPct;
   if (extraPct != null) state.extraPct = extraPct;
   if (resetsAt != null) state.resetsAt = resetsAt;
-
   state.updatedAt = new Date().toISOString();
 
-  // If session % went up, mark as recently active
   if (sessionPct > prev) {
     state.lastUsedAt = new Date().toISOString();
   }
 
   console.log(
-    `[usage] session: ${state.sessionPct}% | weekly: ${state.weeklyPct}% | extra: ${state.extraPct}%`,
+    `[usage] session: ${state.sessionPct}% | weekly: ${state.weeklyPct}%`,
   );
+  res.json({ ok: true, state });
+});
+
+app.post("/thinking", (req, res) => {
+  const { isThinking } = req.body;
+  const wasThinking = state.isThinking;
+  state.isThinking = isThinking;
+
+  if (isThinking && !wasThinking) {
+    state.thinkingSince = new Date().toISOString();
+    console.log("[thinking] Claude is processing...");
+  } else if (!isThinking && wasThinking) {
+    state.thinkingSince = null;
+    console.log("[thinking] Response ready!");
+  }
+
+  res.json({ ok: true, isThinking: state.isThinking });
+});
+
+app.post("/track", (req, res) => {
+  const { tokens } = req.body;
+  if (typeof tokens === "number" && tokens > 0) {
+    state.sessionPct = Math.min(100, state.sessionPct + (tokens / 50000) * 100);
+    state.lastUsedAt = new Date().toISOString();
+    state.updatedAt = new Date().toISOString();
+  }
   res.json({ ok: true, state });
 });
 

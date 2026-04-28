@@ -1,34 +1,171 @@
-const _fetch = window.fetch;
-const PRO_ORG_ID = "697c20d8-96e4-46bd-a2be-745efba88810";
-const PROXY_URL = "http://localhost:7821/track-percent";
+const _fetch = window.fetch.bind(window);
+const KNOWN_ORG_ID = "697c20d8-96e4-46bd-a2be-745efba88810";
 
-function sendToProxy(payload) {
-  console.log("[Claude Buddy] ✓ sending:", payload);
-  chrome.runtime.sendMessage({ type: "SEND_USAGE", payload });
+function postToProxy(path, body) {
+  fetch(`http://localhost:7821${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).catch(() => {});
 }
 
+function writeToStorage(data) {
+  try {
+    const existing = JSON.parse(
+      localStorage.getItem("claude_buddy_usage") || "{}",
+    );
+    const merged = {
+      ...existing,
+      ...data,
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem("claude_buddy_usage", JSON.stringify(merged));
+  } catch {}
+}
+
+function safeSend(msg) {
+  try {
+    if (chrome?.runtime?.id) chrome.runtime.sendMessage(msg).catch(() => {});
+  } catch {}
+}
+
+// Reset thinking on load
+writeToStorage({ isThinking: false });
+postToProxy("/thinking", { isThinking: false });
+
+// ── Thinking detection ──────────────────────────────────────
+let isCurrentlyThinking = false;
+let thinkingStart = null;
+
+function setThinking(val) {
+  if (val === isCurrentlyThinking) return;
+  isCurrentlyThinking = val;
+  thinkingStart = val ? Date.now() : null;
+  console.log("[Claude Buddy]", val ? "🎯 THINKING" : "✅ DONE");
+  writeToStorage({ isThinking: val });
+  postToProxy("/thinking", { isThinking: val });
+}
+
+// Auto reset if stuck
+setInterval(() => {
+  if (
+    isCurrentlyThinking &&
+    thinkingStart &&
+    Date.now() - thinkingStart > 120000
+  ) {
+    setThinking(false);
+  }
+}, 5000);
+
+// Enter key
+document.addEventListener(
+  "keydown",
+  (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      const el = document.activeElement;
+      if (
+        el &&
+        (el.tagName === "TEXTAREA" ||
+          el.getAttribute("contenteditable") === "true" ||
+          el.getAttribute("role") === "textbox")
+      ) {
+        setTimeout(() => setThinking(true), 80);
+      }
+    }
+  },
+  true,
+);
+
+// Send button
+document.addEventListener(
+  "click",
+  (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    const label = (btn.getAttribute("aria-label") || "").toLowerCase();
+    const testid = (btn.getAttribute("data-testid") || "").toLowerCase();
+    if (label.includes("send") || testid.includes("send")) {
+      setTimeout(() => setThinking(true), 80);
+    }
+  },
+  true,
+);
+
+// Stream end
+try {
+  new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) {
+      if (
+        entry.name.includes("chat_conversations") &&
+        entry.name.includes("completion") &&
+        entry.duration > 200
+      ) {
+        setThinking(false);
+      }
+    }
+  }).observe({ entryTypes: ["resource"], buffered: false });
+} catch {}
+
+// Stop button poll
+setInterval(() => {
+  const stop =
+    document.querySelector('[data-testid="stop-button"]') ||
+    document.querySelector('button[aria-label="Stop"]') ||
+    document.querySelector('button[aria-label="Stop response"]');
+  if (stop && !isCurrentlyThinking) setThinking(true);
+  else if (!stop && isCurrentlyThinking) setThinking(false);
+}, 300);
+
+// ── Usage polling ───────────────────────────────────────────
 async function pollUsage() {
   try {
-    const res = await _fetch(`/api/organizations/${PRO_ORG_ID}/usage`, {
+    if (!chrome?.runtime?.id) return;
+  } catch {
+    return;
+  }
+
+  try {
+    const res = await _fetch(`/api/organizations/${KNOWN_ORG_ID}/usage`, {
       credentials: "include",
     });
     if (!res.ok) return;
-    const data = await res.json();
 
+    const data = await res.json();
     const sessionPct = Math.round(data.five_hour?.utilization ?? 0);
     const weeklyPct = Math.round(data.seven_day?.utilization ?? 0);
     const extraPct = Math.round(data.extra_usage?.utilization ?? 0);
     const resetsAt = data.five_hour?.resets_at ?? null;
 
-    sendToProxy({ sessionPct, weeklyPct, extraPct, resetsAt });
+    console.log("[Claude Buddy] ✓", { sessionPct, weeklyPct, extraPct });
+
+    const payload = {
+      sessionTokens: Math.round((sessionPct / 100) * 50000),
+      weekTokens: Math.round((weeklyPct / 100) * 500000),
+      sessionPct,
+      weeklyPct,
+      extraPct,
+      resetsAt,
+      lastUsedAt: sessionPct > 0 ? new Date().toISOString() : undefined,
+    };
+
+    writeToStorage(payload);
+    postToProxy("/track-percent", {
+      sessionPct,
+      weeklyPct,
+      extraPct,
+      resetsAt,
+    });
+    safeSend({ type: "SEND_USAGE", payload });
   } catch (e) {
-    console.warn("[Claude Buddy] poll failed:", e.message);
+    console.warn("[Claude Buddy] poll error:", e.message);
   }
 }
 
-pollUsage();
-setInterval(pollUsage, 20000);
+setTimeout(pollUsage, 2000);
+setInterval(pollUsage, 60000);
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === "POLL_NOW") pollUsage();
-});
+try {
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === "POLL_NOW") pollUsage();
+  });
+} catch {}

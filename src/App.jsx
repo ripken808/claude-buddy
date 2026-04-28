@@ -1,14 +1,11 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Buddy from "./components/Buddy";
 import { useTokenState } from "./hooks/useTokenState";
-import {
-  addTokens,
-  resetSession,
-  saveUsage,
-  loadUsage,
-} from "./utils/tokenTracker";
+import { resetSession, saveUsage, loadUsage } from "./utils/tokenTracker";
 import { STATES, getStateMoodColor } from "./utils/stateEngine";
+
+const isElectron = typeof window !== "undefined" && !!window.electronAPI;
 
 function setHoursAgo(hours) {
   const usage = loadUsage();
@@ -20,51 +17,158 @@ function setHoursAgo(hours) {
 
 const STATE_LIST = Object.values(STATES);
 
-const TOKEN_MAP = {
-  IDLE: { tokens: 0, hours: 0 },
-  FED: { tokens: 5000, hours: 0 },
-  HAPPY: { tokens: 25000, hours: 0 },
-  STUFFED: { tokens: 40000, hours: 0 },
-  SLEEPING: { tokens: 48000, hours: 0 },
-  ENERGY_DRINK: { tokens: 55000, hours: 0 },
-  HIBERNATING: { tokens: 0, hours: 0, weekMax: true },
-  PECKISH: { tokens: 0, hours: 2.5 },
-  HUNGRY: { tokens: 0, hours: 4.5 },
-  BEGGING: { tokens: 0, hours: 7 },
-  DESPERATE: { tokens: 0, hours: 13 },
-  ANGRY_1: { tokens: 0, hours: 25 },
-  ANGRY_2: { tokens: 0, hours: 49 },
-  TANTRUM: { tokens: 0, hours: 73 },
-  WITHDRAWN: { tokens: 0, hours: 121 },
-  FERAL: { tokens: 0, hours: 169 },
-};
-
-export default function App() {
-  const { usage, buddyState, refresh, isConnected } = useTokenState();
-  const [showDev, setShowDev] = useState(true);
-  const [tokenInput, setTokenInput] = useState("1000");
-  const accentColor = getStateMoodColor(buddyState);
-
-  function handleAddTokens() {
-    addTokens(parseInt(tokenInput) || 0);
-    refresh();
+function ElectronApp({
+  usage,
+  buddyState,
+  prevState,
+  isTransitioning,
+  isConnected,
+  isThinking,
+  isEating,
+  justFinished,
+  accentColor,
+}) {
+  if (window.electronAPI) {
+    window.electronAPI.stateChanged(buddyState);
+    if (buddyState === STATES.TANTRUM) window.electronAPI.shakeWindow();
   }
+  return (
+    <div
+      style={{
+        width: "100vw",
+        height: "100vh",
+        background: "transparent",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "flex-start",
+        paddingTop: "2px",
+        fontFamily: '"Courier New", monospace',
+        WebkitAppRegion: "drag",
+        userSelect: "none",
+      }}
+    >
+      <div style={{ WebkitAppRegion: "no-drag" }}>
+        <Buddy
+          buddyState={buddyState}
+          prevState={prevState}
+          isTransitioning={isTransitioning}
+          usage={usage}
+          isThinking={isThinking}
+          isEating={isEating}
+          justFinished={justFinished}
+        />
+      </div>
+      <div
+        style={{
+          color: isThinking ? "#E8611A" : accentColor,
+          fontSize: "10px",
+          fontWeight: "700",
+          letterSpacing: "2px",
+          textTransform: "uppercase",
+          textShadow: `0 0 8px ${isThinking ? "#E8611A" : accentColor}`,
+          marginTop: "-8px",
+          WebkitAppRegion: "no-drag",
+        }}
+      >
+        {isEating
+          ? "> nom nom..."
+          : isThinking
+            ? "⟳ THINKING"
+            : buddyState.replace("_", " ")}
+      </div>
+      <div
+        style={{ width: "140px", marginTop: "6px", WebkitAppRegion: "no-drag" }}
+      >
+        <div
+          style={{
+            width: "100%",
+            height: "6px",
+            background: "rgba(26,26,26,0.9)",
+            border: "1px solid #333",
+            position: "relative",
+            overflow: "hidden",
+            borderRadius: "1px",
+          }}
+        >
+          <div
+            style={{
+              width: `${usage.sessionPct ?? Math.min(((usage.sessionTokens || 0) / 50000) * 100, 100)}%`,
+              height: "100%",
+              background: isThinking ? "#E8611A" : accentColor,
+              boxShadow: `0 0 6px ${isThinking ? "#E8611A" : accentColor}`,
+              transition: "width 0.6s ease, background 0.6s ease",
+            }}
+          />
+          {[25, 50, 75].map((t) => (
+            <div
+              key={t}
+              style={{
+                position: "absolute",
+                left: `${t}%`,
+                top: 0,
+                width: "1px",
+                height: "100%",
+                background: "#444",
+              }}
+            />
+          ))}
+        </div>
+        <div
+          style={{
+            color: "rgba(232,97,26,0.55)",
+            fontSize: "9px",
+            marginTop: "3px",
+            letterSpacing: "1px",
+            textAlign: "center",
+          }}
+        >
+          {usage.sessionPct != null
+            ? `${usage.sessionPct}% · ${usage.weeklyPct}% wk`
+            : `${(usage.sessionTokens || 0).toLocaleString()} tkn`}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BrowserApp({
+  usage,
+  buddyState,
+  prevState,
+  isTransitioning,
+  refresh,
+  isConnected,
+  isThinking,
+  isEating,
+  justFinished,
+  accentColor,
+  devLocked,
+  forceState,
+  forceEat,
+}) {
+  const [showDev, setShowDev] = useState(false);
+  const dreamTriggerRef = useRef(null);
+
+  const handleDreamReady = useCallback((fn) => {
+    dreamTriggerRef.current = fn;
+  }, []);
 
   function handleReset() {
     resetSession();
     refresh();
   }
 
-  function handleForceState(s) {
-    const cfg = TOKEN_MAP[s] || { tokens: 0, hours: 0 };
-    const u = loadUsage();
-    u.sessionTokens = cfg.tokens;
-    u.weekTokens = cfg.weekMax ? 500000 : cfg.tokens;
-    const d = new Date();
-    if (cfg.hours > 0) d.setHours(d.getHours() - cfg.hours);
-    u.lastUsedAt = d.toISOString();
-    saveUsage(u);
-    refresh();
+  function triggerTestDream() {
+    if (dreamTriggerRef.current) {
+      dreamTriggerRef.current();
+    } else {
+      // Fallback: force sleeping state first
+      forceState("SLEEPING");
+      setTimeout(() => {
+        if (dreamTriggerRef.current) dreamTriggerRef.current();
+      }, 500);
+    }
   }
 
   return (
@@ -76,13 +180,12 @@ export default function App() {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        fontFamily: '"Courier New", "Courier", monospace',
-        color: "#ffffff",
+        fontFamily: '"Courier New", monospace',
+        color: "#fff",
         position: "relative",
         overflow: "hidden",
       }}
     >
-      {/* Scanline overlay */}
       <div
         style={{
           position: "fixed",
@@ -93,23 +196,16 @@ export default function App() {
             "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px)",
         }}
       />
-
-      {/* Orange grid */}
       <div
         style={{
           position: "fixed",
           inset: 0,
           pointerEvents: "none",
           zIndex: 0,
-          backgroundImage: `
-          linear-gradient(rgba(232,97,26,0.04) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(232,97,26,0.04) 1px, transparent 1px)
-        `,
+          backgroundImage: `linear-gradient(rgba(232,97,26,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(232,97,26,0.04) 1px, transparent 1px)`,
           backgroundSize: "40px 40px",
         }}
       />
-
-      {/* Corner brackets */}
       {[
         { top: 16, left: 16, rotate: 0 },
         { top: 16, right: 16, rotate: 90 },
@@ -132,36 +228,29 @@ export default function App() {
         />
       ))}
 
-      {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        style={{
-          textAlign: "center",
-          marginBottom: "48px",
-          zIndex: 2,
-          position: "relative",
-        }}
+        style={{ textAlign: "center", marginBottom: "40px", zIndex: 2 }}
       >
         <div
           style={{
             color: "#E8611A",
-            fontSize: "13px",
+            fontSize: "11px",
             letterSpacing: "2px",
-            marginBottom: "8px",
-            opacity: 0.7,
+            marginBottom: "6px",
+            opacity: 0.6,
           }}
         >
-          {">"} claude buddy v0.1.0
+          {">"} claude buddy v0.2.0
         </div>
         <h1
           style={{
-            fontSize: "32px",
+            fontSize: "28px",
             fontWeight: "700",
             letterSpacing: "6px",
             color: "#E8611A",
-            textShadow:
-              "0 0 30px rgba(232,97,26,0.5), 0 0 60px rgba(232,97,26,0.2)",
+            textShadow: "0 0 30px rgba(232,97,26,0.5)",
             textTransform: "uppercase",
             margin: 0,
           }}
@@ -170,17 +259,16 @@ export default function App() {
         </h1>
         <div
           style={{
-            color: "rgba(232,97,26,0.5)",
-            fontSize: "11px",
+            color: "rgba(232,97,26,0.4)",
+            fontSize: "10px",
             letterSpacing: "3px",
-            marginTop: "6px",
+            marginTop: "4px",
           }}
         >
           feed it or suffer the consequences
         </div>
       </motion.div>
 
-      {/* Buddy container */}
       <motion.div
         initial={{ opacity: 0, scale: 0.5 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -189,7 +277,7 @@ export default function App() {
           position: "relative",
           zIndex: 2,
           marginBottom: "80px",
-          padding: "32px",
+          padding: "28px",
           background: "rgba(232,97,26,0.04)",
           border: "1px solid rgba(232,97,26,0.15)",
           borderRadius: "4px",
@@ -200,15 +288,23 @@ export default function App() {
             position: "absolute",
             inset: 0,
             borderRadius: "4px",
-            boxShadow: `inset 0 0 60px ${accentColor}11`,
+            boxShadow: `inset 0 0 50px ${accentColor}11`,
             pointerEvents: "none",
             transition: "box-shadow 1s ease",
           }}
         />
-        <Buddy buddyState={buddyState} usage={usage} />
+        <Buddy
+          buddyState={buddyState}
+          prevState={prevState}
+          isTransitioning={isTransitioning}
+          usage={usage}
+          isThinking={isThinking}
+          isEating={isEating}
+          justFinished={justFinished}
+          onDreamReady={handleDreamReady}
+        />
       </motion.div>
 
-      {/* Dev toggle */}
       <button
         onClick={() => setShowDev((v) => !v)}
         style={{
@@ -221,7 +317,7 @@ export default function App() {
           borderRadius: "2px",
           padding: "4px 10px",
           cursor: "pointer",
-          fontSize: "11px",
+          fontSize: "10px",
           letterSpacing: "2px",
           fontFamily: "inherit",
           zIndex: 10,
@@ -230,7 +326,6 @@ export default function App() {
         {showDev ? "[HIDE DEV]" : "[DEV]"}
       </button>
 
-      {/* Dev panel */}
       <AnimatePresence>
         {showDev && (
           <motion.div
@@ -244,59 +339,79 @@ export default function App() {
               right: 0,
               background: "#0D0D0D",
               borderTop: "1px solid rgba(232,97,26,0.3)",
-              padding: "14px 20px",
+              padding: "12px 20px",
               zIndex: 10,
             }}
           >
-            {/* Header row */}
             <div
               style={{
                 fontSize: "10px",
                 color: "#E8611A",
                 opacity: 0.6,
                 letterSpacing: "2px",
-                marginBottom: "10px",
+                marginBottom: "8px",
                 display: "flex",
                 alignItems: "center",
-                gap: "12px",
+                gap: "10px",
+                flexWrap: "wrap",
               }}
             >
-              <span>{">"} DEV_CONSOLE</span>
-              <span style={{ color: accentColor }}>STATE: {buddyState}</span>
-              <span style={{ color: "rgba(255,255,255,0.2)" }}>
-                TOKENS: {(usage.sessionTokens || 0).toLocaleString()}
-              </span>
+              <span>{">"} DEV</span>
+              <span style={{ color: accentColor }}>{buddyState}</span>
               <span style={{ color: isConnected ? "#39FF14" : "#FF4444" }}>
-                {isConnected ? "● LIVE" : "○ DEV MODE"}
+                {isConnected ? "● LIVE" : "○ offline"}
               </span>
+              <span
+                style={{
+                  color: isThinking ? "#FFB800" : "rgba(255,255,255,0.2)",
+                }}
+              >
+                {isThinking ? "⟳ THINKING" : isEating ? "🍽 EATING" : "○"}
+              </span>
+              {usage.sessionPct != null && (
+                <span style={{ color: "rgba(255,255,255,0.3)" }}>
+                  {usage.sessionPct}% · {usage.weeklyPct}% wk{" "}
+                  {usage.extraPct > 0 ? `· extra ${usage.extraPct}%` : ""}
+                </span>
+              )}
+              {devLocked && (
+                <span
+                  style={{
+                    color: "#FFB800",
+                    background: "rgba(255,184,0,0.1)",
+                    border: "1px solid #FFB80044",
+                    borderRadius: "2px",
+                    padding: "1px 6px",
+                    fontSize: "9px",
+                  }}
+                >
+                  🔒 LOCKED 8s
+                </span>
+              )}
             </div>
 
-            {/* Token controls */}
+            {/* Action buttons */}
             <div
               style={{
                 display: "flex",
-                gap: "8px",
-                marginBottom: "10px",
+                gap: "6px",
+                marginBottom: "8px",
                 alignItems: "center",
+                flexWrap: "wrap",
               }}
             >
-              <input
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddTokens()}
+              <Btn onClick={forceEat} accent>
+                🪙 eat
+              </Btn>
+              <Btn
+                onClick={triggerTestDream}
                 style={{
-                  background: "#1A1A1A",
-                  border: "1px solid #E8611A44",
-                  color: "#E8611A",
-                  borderRadius: "2px",
-                  padding: "4px 10px",
-                  width: "90px",
-                  fontSize: "12px",
-                  fontFamily: "inherit",
+                  background: "rgba(140,120,255,0.15)",
+                  border: "1px solid rgba(140,120,255,0.4)",
+                  color: "#C4B8FF",
                 }}
-              />
-              <Btn onClick={handleAddTokens} accent>
-                +tokens
+              >
+                💭 dream
               </Btn>
               <Btn onClick={handleReset} danger>
                 reset
@@ -305,10 +420,10 @@ export default function App() {
                 style={{
                   color: "rgba(255,255,255,0.15)",
                   fontSize: "10px",
-                  marginLeft: "4px",
+                  margin: "0 4px",
                 }}
               >
-                set last-used:
+                last-used:
               </span>
               {[2, 4, 6, 12, 24, 48, 72, 120, 168].map((h) => (
                 <Btn
@@ -318,22 +433,33 @@ export default function App() {
                     refresh();
                   }}
                 >
-                  {h}h ago
+                  {h}h
                 </Btn>
               ))}
             </div>
 
             {/* State buttons */}
-            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
               {STATE_LIST.map((s) => (
                 <Btn
                   key={s}
-                  onClick={() => handleForceState(s)}
+                  onClick={() => forceState(s)}
                   active={buddyState === s}
                 >
                   {s}
                 </Btn>
               ))}
+            </div>
+            <div
+              style={{
+                fontSize: "9px",
+                color: "rgba(255,255,255,0.2)",
+                marginTop: "6px",
+                letterSpacing: "1px",
+              }}
+            >
+              state buttons lock 8s · 💭 dream works anytime · sleeping
+              auto-dreams after 3s
             </div>
           </motion.div>
         )}
@@ -342,7 +468,58 @@ export default function App() {
   );
 }
 
-function Btn({ children, onClick, accent, danger, active }) {
+export default function App() {
+  const {
+    usage,
+    buddyState,
+    prevState,
+    isTransitioning,
+    refresh,
+    isConnected,
+    isThinking,
+    isEating,
+    justFinished,
+    devLocked,
+    forceState,
+    forceEat,
+  } = useTokenState();
+  const accentColor = getStateMoodColor(buddyState);
+
+  if (isElectron) {
+    return (
+      <ElectronApp
+        usage={usage}
+        buddyState={buddyState}
+        prevState={prevState}
+        isTransitioning={isTransitioning}
+        isConnected={isConnected}
+        isThinking={isThinking}
+        isEating={isEating}
+        justFinished={justFinished}
+        accentColor={accentColor}
+      />
+    );
+  }
+  return (
+    <BrowserApp
+      usage={usage}
+      buddyState={buddyState}
+      prevState={prevState}
+      isTransitioning={isTransitioning}
+      refresh={refresh}
+      isConnected={isConnected}
+      isThinking={isThinking}
+      isEating={isEating}
+      justFinished={justFinished}
+      accentColor={accentColor}
+      devLocked={devLocked}
+      forceState={forceState}
+      forceEat={forceEat}
+    />
+  );
+}
+
+function Btn({ children, onClick, accent, danger, active, style: extraStyle }) {
   let bg = "#1A1A1A",
     border = "#333",
     color = "rgba(255,255,255,0.5)";
@@ -361,7 +538,6 @@ function Btn({ children, onClick, accent, danger, active }) {
     border = "#E8611A";
     color = "#000";
   }
-
   return (
     <button
       onClick={onClick}
@@ -370,14 +546,14 @@ function Btn({ children, onClick, accent, danger, active }) {
         border: `1px solid ${border}`,
         color,
         borderRadius: "2px",
-        padding: "3px 9px",
+        padding: "2px 7px",
         cursor: "pointer",
-        fontSize: "10px",
+        fontSize: "9px",
         letterSpacing: "0.5px",
         fontFamily: '"Courier New", monospace',
         fontWeight: "700",
         textTransform: "uppercase",
-        transition: "all 0.1s",
+        ...extraStyle,
       }}
     >
       {children}
