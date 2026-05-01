@@ -91,7 +91,7 @@ document.addEventListener(
   true,
 );
 
-// Stream end
+// Stream end detection
 try {
   new PerformanceObserver((list) => {
     for (const entry of list.getEntries()) {
@@ -118,6 +118,9 @@ setInterval(() => {
 
 // ── Usage polling ───────────────────────────────────────────
 async function pollUsage() {
+  // Skip on settings pages — they block the usage API
+  if (window.location.href.includes("/settings")) return;
+
   try {
     if (!chrome?.runtime?.id) return;
   } catch {
@@ -145,7 +148,7 @@ async function pollUsage() {
       weeklyPct,
       extraPct,
       resetsAt,
-      lastUsedAt: sessionPct > 0 ? new Date().toISOString() : undefined,
+      lastUsedAt: new Date().toISOString(),
     };
 
     writeToStorage(payload);

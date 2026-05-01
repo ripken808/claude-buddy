@@ -13,6 +13,7 @@ function getDefaultUsage() {
     sessionPct: null,
     weeklyPct: null,
     extraPct: null,
+    dataUpdatedAt: null,
   };
 }
 
@@ -60,6 +61,13 @@ export function getHoursSinceLastUse(usage) {
 }
 
 export function getTokenState(usage) {
+  // If data is older than 10 minutes, treat extraPct as 0
+  // Prevents stale energy drink state when extension isn't running
+  const dataAge = usage.dataUpdatedAt
+    ? (Date.now() - new Date(usage.dataUpdatedAt)) / 1000 / 60
+    : 999;
+  const freshData = dataAge < 10;
+
   return {
     sessionTokens: usage.sessionTokens || 0,
     sessionLimit: SESSION_LIMIT,
@@ -68,6 +76,8 @@ export function getTokenState(usage) {
     hoursSinceLastUse: getHoursSinceLastUse(usage),
     sessionPct: usage.sessionPct ?? null,
     weeklyPct: usage.weeklyPct ?? null,
+    // Only use extraPct if data was recently updated by extension
+    extraPct: freshData ? (usage.extraPct ?? null) : null,
   };
 }
 
@@ -76,7 +86,6 @@ export function getSessionPercent(usage) {
 }
 
 export async function fetchRealUsage() {
-  // Try proxy first (Electron + browser with proxy running)
   try {
     const res = await fetch(PROXY_URL, { signal: AbortSignal.timeout(1500) });
     if (res.ok) {
@@ -89,17 +98,22 @@ export async function fetchRealUsage() {
         usage.weeklyPct = data.weeklyPct ?? null;
         usage.extraPct = data.extraPct ?? null;
         usage.isThinking = data.isThinking ?? false;
-        if (data.lastUsedAt) usage.lastUsedAt = data.lastUsedAt;
+        usage.dataUpdatedAt = new Date().toISOString();
+
+        // Update lastUsedAt — prevents hunger states firing during active sessions
+        if (data.lastUsedAt) {
+          usage.lastUsedAt = data.lastUsedAt;
+        } else if ((usage.sessionPct ?? 0) > 0 && !usage.lastUsedAt) {
+          usage.lastUsedAt = new Date().toISOString();
+        }
+
         saveUsage(usage);
         return usage;
       }
     }
   } catch {}
 
-  // Fall back to localStorage (extension wrote directly)
   const usage = loadUsage();
-  if (usage.sessionPct != null || usage.sessionTokens > 0) {
-    return usage;
-  }
+  if (usage.sessionPct != null || usage.sessionTokens > 0) return usage;
   return null;
 }

@@ -31,7 +31,9 @@ function ElectronApp({
   if (window.electronAPI) {
     window.electronAPI.stateChanged(buddyState);
     if (buddyState === STATES.TANTRUM) window.electronAPI.shakeWindow();
+    if (justFinished) window.electronAPI.answerReady?.();
   }
+
   return (
     <div
       style={{
@@ -59,6 +61,7 @@ function ElectronApp({
           justFinished={justFinished}
         />
       </div>
+
       <div
         style={{
           color: isThinking ? "#E8611A" : accentColor,
@@ -77,6 +80,7 @@ function ElectronApp({
             ? "⟳ THINKING"
             : buddyState.replace("_", " ")}
       </div>
+
       <div
         style={{ width: "140px", marginTop: "6px", WebkitAppRegion: "no-drag" }}
       >
@@ -154,21 +158,18 @@ function BrowserApp({
     dreamTriggerRef.current = fn;
   }, []);
 
-  function handleReset() {
-    resetSession();
-    refresh();
-  }
-
   function triggerTestDream() {
     if (dreamTriggerRef.current) {
       dreamTriggerRef.current();
     } else {
-      // Fallback: force sleeping state first
       forceState("SLEEPING");
-      setTimeout(() => {
-        if (dreamTriggerRef.current) dreamTriggerRef.current();
-      }, 500);
+      setTimeout(() => dreamTriggerRef.current?.(), 600);
     }
+  }
+
+  function handleReset() {
+    resetSession();
+    refresh();
   }
 
   return (
@@ -186,6 +187,7 @@ function BrowserApp({
         overflow: "hidden",
       }}
     >
+      {/* Scanline */}
       <div
         style={{
           position: "fixed",
@@ -196,6 +198,7 @@ function BrowserApp({
             "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px)",
         }}
       />
+      {/* Grid */}
       <div
         style={{
           position: "fixed",
@@ -206,6 +209,7 @@ function BrowserApp({
           backgroundSize: "40px 40px",
         }}
       />
+      {/* Corner brackets */}
       {[
         { top: 16, left: 16, rotate: 0 },
         { top: 16, right: 16, rotate: 90 },
@@ -228,6 +232,7 @@ function BrowserApp({
         />
       ))}
 
+      {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -269,6 +274,7 @@ function BrowserApp({
         </div>
       </motion.div>
 
+      {/* Buddy */}
       <motion.div
         initial={{ opacity: 0, scale: 0.5 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -305,6 +311,7 @@ function BrowserApp({
         />
       </motion.div>
 
+      {/* Dev toggle */}
       <button
         onClick={() => setShowDev((v) => !v)}
         style={{
@@ -326,6 +333,7 @@ function BrowserApp({
         {showDev ? "[HIDE DEV]" : "[DEV]"}
       </button>
 
+      {/* Dev panel */}
       <AnimatePresence>
         {showDev && (
           <motion.div
@@ -370,8 +378,8 @@ function BrowserApp({
               </span>
               {usage.sessionPct != null && (
                 <span style={{ color: "rgba(255,255,255,0.3)" }}>
-                  {usage.sessionPct}% · {usage.weeklyPct}% wk{" "}
-                  {usage.extraPct > 0 ? `· extra ${usage.extraPct}%` : ""}
+                  {usage.sessionPct}% · {usage.weeklyPct}% wk
+                  {usage.extraPct > 0 ? ` · extra ${usage.extraPct}%` : ""}
                 </span>
               )}
               {devLocked && (
@@ -390,7 +398,6 @@ function BrowserApp({
               )}
             </div>
 
-            {/* Action buttons */}
             <div
               style={{
                 display: "flex",
@@ -403,16 +410,7 @@ function BrowserApp({
               <Btn onClick={forceEat} accent>
                 🪙 eat
               </Btn>
-              <Btn
-                onClick={triggerTestDream}
-                style={{
-                  background: "rgba(140,120,255,0.15)",
-                  border: "1px solid rgba(140,120,255,0.4)",
-                  color: "#C4B8FF",
-                }}
-              >
-                💭 dream
-              </Btn>
+              <Btn onClick={triggerTestDream}>💭 dream</Btn>
               <Btn onClick={handleReset} danger>
                 reset
               </Btn>
@@ -438,7 +436,6 @@ function BrowserApp({
               ))}
             </div>
 
-            {/* State buttons */}
             <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
               {STATE_LIST.map((s) => (
                 <Btn
@@ -450,6 +447,7 @@ function BrowserApp({
                 </Btn>
               ))}
             </div>
+
             <div
               style={{
                 fontSize: "9px",
@@ -500,6 +498,7 @@ export default function App() {
       />
     );
   }
+
   return (
     <BrowserApp
       usage={usage}
@@ -519,7 +518,7 @@ export default function App() {
   );
 }
 
-function Btn({ children, onClick, accent, danger, active, style: extraStyle }) {
+function Btn({ children, onClick, accent, danger, active }) {
   let bg = "#1A1A1A",
     border = "#333",
     color = "rgba(255,255,255,0.5)";
@@ -553,7 +552,6 @@ function Btn({ children, onClick, accent, danger, active, style: extraStyle }) {
         fontFamily: '"Courier New", monospace',
         fontWeight: "700",
         textTransform: "uppercase",
-        ...extraStyle,
       }}
     >
       {children}

@@ -28,14 +28,7 @@ export const STATE_SPEECH = {
     "still here!",
     "bored tbh",
   ],
-  FED: [
-    "yum!",
-    "nom nom ♪",
-    "thanks~",
-    "more please?",
-    "tasty tokens!",
-    "*happy beep*",
-  ],
+  FED: ["yum!", "nom nom", "thanks~", "more please?", "tasty!", "*happy beep*"],
   HAPPY: [
     "YAYY!!",
     "MORE!!",
@@ -50,31 +43,17 @@ export const STATE_SPEECH = {
     "oof.",
     "send help",
     "cannot move",
-    "*burp* excuse me",
+    "*burp*",
   ],
-  SLEEPING: [
-    "zzz...",
-    "💤",
-    "...zzzz",
-    "*snore*",
-    "...dreaming of tokens",
-    "do not disturb",
-  ],
-  HIBERNATING: [
-    "❄️...",
-    "so... cold...",
-    "...frozen...",
-    "wake me next week",
-    "brrr....",
-  ],
+  SLEEPING: ["zzz...", "z z z", "...zzzz", "*snore*", "do not disturb"],
+  HIBERNATING: ["so cold...", "...frozen...", "wake me next week", "brrr...."],
   ENERGY_DRINK: [
     "LETS GOOOOO",
     "MAXIMUM POWER",
-    "⚡⚡⚡",
     "I FEEL EVERYTHING",
     "CANNOT STOP",
-    "IS THIS LEGAL",
     "ZOOOOOM",
+    "IS THIS LEGAL",
   ],
   PECKISH: [
     "*stomach growl*",
@@ -82,14 +61,7 @@ export const STATE_SPEECH = {
     "...feed me?",
     "getting hungry ngl",
   ],
-  HUNGRY: [
-    "FEED ME",
-    "please 🥺",
-    "food???",
-    "hellooooo??",
-    "tokens. NOW.",
-    "bro. BRO.",
-  ],
+  HUNGRY: ["FEED ME", "please", "food???", "hellooooo??", "tokens. NOW."],
   BEGGING: [
     "please...",
     "I'm so hungry...",
@@ -97,38 +69,17 @@ export const STATE_SPEECH = {
     "why...",
     "just one prompt...",
   ],
-  DESPERATE: ["...days...", "tokens... need tokens...", "💀", "fading away..."],
+  DESPERATE: ["...days...", "tokens... need tokens...", "fading away..."],
   ANGRY_1: [
-    "I know you're using other AIs.",
+    "using other AIs huh.",
     "seriously.",
     "*crosses arms*",
     "fine. FINE.",
   ],
-  ANGRY_2: [
-    "THAT IS IT",
-    "IM THROWING THIS",
-    "YOU ASKED FOR THIS",
-    "I warned you.",
-  ],
-  TANTRUM: [
-    "WHYYYYYYYY",
-    "FEED MEEEE",
-    "I HATE THIS",
-    "*screaming into void*",
-    "I DEMAND TOKENS",
-  ],
-  WITHDRAWN: [
-    "...",
-    "...whatever.",
-    "*glances back*",
-    "...not talking to you.",
-  ],
-  FERAL: [
-    "!@#$%",
-    "👁️👄👁️",
-    "*unintelligible*",
-    "I HAVE BECOME SOMETHING ELSE",
-  ],
+  ANGRY_2: ["THAT IS IT", "YOU ASKED FOR THIS", "I warned you."],
+  TANTRUM: ["WHYYYYYYYY", "FEED MEEEE", "I HATE THIS", "I DEMAND TOKENS"],
+  WITHDRAWN: ["...", "...whatever.", "*glances back*"],
+  FERAL: ["!@#$%", "*unintelligible*", "I HAVE BECOME SOMETHING ELSE"],
 };
 
 export function resolveState({
@@ -146,16 +97,21 @@ export function resolveState({
   const wPct = weeklyPct !== null ? weeklyPct : (weekTokens / weekLimit) * 100;
   const ePct = extraPct !== null ? extraPct : 0;
 
-  // Weekly limit hit → hibernating (only at 100%)
+  // Weekly 100% → hibernating
   if (wPct >= 100) return STATES.HIBERNATING;
 
-  // Extra usage active (over session cap) → energy drink
-  if (ePct > 0 && sPct >= 100) return STATES.ENERGY_DRINK;
+  // Energy drink only when session hits 95%+ AND extra usage is being spent
+  // extraPct > 0 alone just means historical balance, not actively overclocked
+  if (ePct > 0 && sPct >= 95) return STATES.ENERGY_DRINK;
 
-  // Session limit hit (100%) → sleeping
+  // Session 100% → sleeping
   if (sPct >= 100) return STATES.SLEEPING;
 
-  // Hunger states — time based, take priority over feed states
+  // If actively using Claude (session > 1%), hunger needs 4+ hours to kick in
+  // This prevents BEGGING when you're actively in a session
+  const sessionActive = sPct >= 1;
+  const hungerGrace = sessionActive ? 4 : 0;
+
   if (hoursSinceLastUse >= 168) return STATES.FERAL;
   if (hoursSinceLastUse >= 120) return STATES.WITHDRAWN;
   if (hoursSinceLastUse >= 72) return STATES.TANTRUM;
@@ -163,10 +119,10 @@ export function resolveState({
   if (hoursSinceLastUse >= 24) return STATES.ANGRY_1;
   if (hoursSinceLastUse >= 12) return STATES.DESPERATE;
   if (hoursSinceLastUse >= 6) return STATES.BEGGING;
-  if (hoursSinceLastUse >= 4) return STATES.HUNGRY;
-  if (hoursSinceLastUse >= 2) return STATES.PECKISH;
+  if (hoursSinceLastUse >= hungerGrace + 2) return STATES.HUNGRY;
+  if (hoursSinceLastUse >= hungerGrace) return STATES.PECKISH;
 
-  // Feed states from session %
+  // Feed states
   if (sPct >= 70) return STATES.STUFFED;
   if (sPct >= 40) return STATES.HAPPY;
   if (sPct >= 1) return STATES.FED;
@@ -180,15 +136,15 @@ export function getSpeechLine(state) {
 
 export function isHungerState(state) {
   return [
-    STATES.PECKISH,
-    STATES.HUNGRY,
-    STATES.BEGGING,
-    STATES.DESPERATE,
-    STATES.ANGRY_1,
-    STATES.ANGRY_2,
-    STATES.TANTRUM,
-    STATES.WITHDRAWN,
-    STATES.FERAL,
+    "PECKISH",
+    "HUNGRY",
+    "BEGGING",
+    "DESPERATE",
+    "ANGRY_1",
+    "ANGRY_2",
+    "TANTRUM",
+    "WITHDRAWN",
+    "FERAL",
   ].includes(state);
 }
 
